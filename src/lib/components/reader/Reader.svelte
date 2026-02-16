@@ -1,75 +1,79 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import type { Article } from '$lib/types';
+
   interface Props {
-    articleId?: string | null;
+    article?: Article | null;
   }
 
-  let { articleId }: Props = $props();
+  let { article }: Props = $props();
 
-  const sampleContent = `
-    <h1>Understanding React Server Components</h1>
-    <p class="meta">Published by Tech Blogs · 2 hours ago</p>
-    <p>React Server Components represent a fundamental shift in how we think about React applications. By moving certain components to the server, we can reduce the amount of JavaScript sent to the client and improve performance.</p>
-    <h2>What Are Server Components?</h2>
-    <p>Server Components are a new type of React component that renders only on the server. Unlike traditional React components, they don't add to the client-side JavaScript bundle.</p>
-    <p>This means you can have rich, interactive applications without the performance penalty of large JavaScript bundles. The key insight is that not all components need to be interactive.</p>
-    <h2>Benefits</h2>
-    <ul>
-      <li><strong>Smaller Bundle Size:</strong> Server Components and their dependencies are not included in the client bundle.</li>
-      <li><strong>Direct Backend Access:</strong> Server Components can directly access backend resources like databases and file systems.</li>
-      <li><strong>Automatic Code Splitting:</strong> Only interactive parts of your app load client-side code.</li>
-    </ul>
-    <blockquote>
-      "Server Components let you render parts of your application on the server, streaming them to the client. This is a fundamental shift in React's mental model." — React Team
-    </blockquote>
-    <h2>Getting Started</h2>
-    <p>To use Server Components, you'll need React 18 or later and a framework that supports them, such as Next.js 13+.</p>
-  `;
+  function formatContent(content: string | null): string {
+    if (!content) return '<p>No content available</p>';
+    return content;
+  }
+
+  function formatDate(dateStr: string | null): string {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  }
+
+  function handleOpenOriginal() {
+    if (article?.url) {
+      window.open(article.url, '_blank');
+    }
+  }
 </script>
 
 <div class="reader">
-  {#if articleId}
+  {#if article}
     <div class="reader-toolbar">
-      <div class="toolbar-actions">
-        <button class="toolbar-btn" title="Previous article">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="m15 18-6-6 6-6"/>
-          </svg>
-        </button>
-        <button class="toolbar-btn" title="Next article">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="m9 18 6-6-6-6"/>
-          </svg>
-        </button>
+      <div class="toolbar-info">
+        <span class="feed-name">{article.feed_name}</span>
       </div>
       <div class="toolbar-spacer"></div>
-      <button class="toolbar-btn primary" title="Send to Obsidian">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" x2="12" y1="3" y2="15"/>
-        </svg>
-        <span>Send to Obsidian</span>
-      </button>
+      <div class="toolbar-actions">
+        {#if article.url}
+          <button class="toolbar-btn" onclick={handleOpenOriginal} title="Open original">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" x2="21" y1="14" y2="3"/>
+            </svg>
+          </button>
+        {/if}
+        <button class="toolbar-btn primary" title="Send to Obsidian">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" x2="12" y1="3" y2="15"/>
+          </svg>
+          <span>Send to Obsidian</span>
+        </button>
+      </div>
     </div>
 
     <div class="reader-content">
       <article class="article">
-        {@html sampleContent}
-      </article>
+        <h1>{article.title}</h1>
+        <div class="meta">
+          {#if article.author}
+            <span class="author">{article.author}</span>
+            <span class="separator">·</span>
+          {/if}
+          <time>{formatDate(article.published_at)}</time>
+        </div>
 
-      <aside class="highlights-panel">
-        <div class="panel-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 20h9"/>
-            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-          </svg>
-          Highlights
+        <div class="content">
+          {@html formatContent(article.content)}
         </div>
-        <div class="highlight-item">
-          <p class="highlight-text">"Server Components let you render parts of your application on the server..."</p>
-          <textarea class="highlight-note" placeholder="Add a note..."></textarea>
-        </div>
-      </aside>
+      </article>
     </div>
   {:else}
     <div class="empty-state">
@@ -88,6 +92,7 @@
     flex: 1;
     height: 100%;
     overflow: hidden;
+    background: var(--bg-primary);
   }
 
   .reader-toolbar {
@@ -98,13 +103,28 @@
     border-bottom: 1px solid var(--border-light);
   }
 
-  .toolbar-actions {
+  .toolbar-info {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .feed-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   .toolbar-spacer {
     flex: 1;
+  }
+
+  .toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .toolbar-btn {
@@ -133,111 +153,116 @@
   }
 
   .reader-content {
-    display: flex;
     flex: 1;
-    overflow: hidden;
+    overflow-y: auto;
   }
 
   .article {
-    flex: 1;
-    padding: 32px 48px;
-    overflow-y: auto;
-    max-width: 720px;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 48px 24px;
   }
 
-  .article :global(h1) {
+  .article h1 {
     font-size: 28px;
     font-weight: 600;
     color: var(--text-primary);
-    margin-bottom: 8px;
+    margin-bottom: 12px;
     line-height: 1.3;
   }
 
-  .article :global(.meta) {
+  .article .meta {
+    display: flex;
+    align-items: center;
     font-size: 13px;
     color: var(--text-muted);
-    margin-bottom: 24px;
+    margin-bottom: 32px;
   }
 
-  .article :global(h2) {
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-top: 32px;
-    margin-bottom: 12px;
-  }
-
-  .article :global(p) {
-    font-size: 15px;
-    line-height: 1.7;
-    color: var(--text-primary);
-    margin-bottom: 16px;
-  }
-
-  .article :global(ul) {
-    margin-bottom: 16px;
-    padding-left: 24px;
-  }
-
-  .article :global(li) {
-    font-size: 15px;
-    line-height: 1.7;
-    color: var(--text-primary);
-    margin-bottom: 8px;
-  }
-
-  .article :global(blockquote) {
-    border-left: 3px solid var(--accent);
-    padding-left: 16px;
-    margin: 24px 0;
-    font-style: italic;
+  .article .author {
     color: var(--text-secondary);
   }
 
-  .highlights-panel {
-    width: 280px;
-    background: var(--bg-secondary);
-    border-left: 1px solid var(--border-light);
-    padding: 16px;
-    overflow-y: auto;
+  .article .separator {
+    margin: 0 8px;
   }
 
-  .panel-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-muted);
-    margin-bottom: 16px;
-  }
-
-  .highlight-item {
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-md);
-    padding: 12px;
-    margin-bottom: 12px;
-  }
-
-  .highlight-text {
-    font-size: 13px;
+  .article .content {
+    font-size: 16px;
+    line-height: 1.7;
     color: var(--text-primary);
-    line-height: 1.5;
-    margin-bottom: 8px;
+  }
+
+  .article .content :global(p) {
+    margin-bottom: 1.5em;
+  }
+
+  .article .content :global(h2) {
+    font-size: 22px;
+    font-weight: 600;
+    margin-top: 2em;
+    margin-bottom: 0.75em;
+  }
+
+  .article .content :global(h3) {
+    font-size: 18px;
+    font-weight: 600;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+  }
+
+  .article .content :global(ul),
+  .article .content :global(ol) {
+    margin-bottom: 1.5em;
+    padding-left: 1.5em;
+  }
+
+  .article .content :global(li) {
+    margin-bottom: 0.5em;
+  }
+
+  .article .content :global(blockquote) {
+    border-left: 3px solid var(--accent);
+    padding-left: 1em;
+    margin: 1.5em 0;
+    color: var(--text-secondary);
     font-style: italic;
   }
 
-  .highlight-note {
-    width: 100%;
-    min-height: 60px;
-    padding: 8px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
+  .article .content :global(pre) {
+    background: var(--bg-secondary);
+    padding: 16px;
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    margin: 1.5em 0;
+    font-size: 14px;
+  }
+
+  .article .content :global(code) {
+    background: var(--bg-secondary);
+    padding: 2px 6px;
     border-radius: var(--radius-sm);
-    font-size: 13px;
-    resize: vertical;
+    font-size: 0.9em;
+  }
+
+  .article .content :global(pre code) {
+    background: none;
+    padding: 0;
+  }
+
+  .article .content :global(img) {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+    margin: 1.5em 0;
+  }
+
+  .article .content :global(a) {
+    color: var(--text-link);
+  }
+
+  .article .content :global(a:hover) {
+    text-decoration: underline;
   }
 
   .empty-state {

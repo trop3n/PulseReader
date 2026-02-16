@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import Database from 'better-sqlite3';
+import { fetchFeed } from './services/rss.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -67,7 +68,8 @@ function initDatabase() {
       published_at TEXT,
       is_read INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (feed_id) REFERENCES feeds(id)
+      FOREIGN KEY (feed_id) REFERENCES feeds(id),
+      UNIQUE(feed_id, url) ON CONFLICT IGNORE
     );
 
     CREATE TABLE IF NOT EXISTS pdfs (
@@ -175,4 +177,168 @@ ipcMain.handle('dialog:openDirectory', async () => {
     properties: ['openDirectory']
   });
   return result.filePaths;
+});
+
+ipcMain.handle('feeds:list', () => {
+  if (!db) throw new Error('Database not initialized');
+  return db.prepare(`
+    SELECT f.*, 
+      (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) as total_count,
+      (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.is_read = 0) as unread_count
+    FROM feeds f
+    ORDER BY f.name
+  `).all();
+});
+
+ipcMain.handle('feeds:add', async (_event, { name, url }: { name: string; url: string }) => {
+  if (!db) throw new Error('Database not initialized');
+  
+  const existing = db.prepare('SELECT id FROM feeds WHERE url = ?').get(url);
+  if (existing) {
+    throw new Error('Feed with this URL already exists');
+  }
+
+  const result = db.prepare('INSERT INTO feeds (type, name, url) VALUES (?, ?, ?)').run('rss', name, url);
+  return { id: result.lastInsertRowid, name, url, type: 'rss' };
+});
+
+ipcMain.handle('feeds:remove', (_event, feedId: number) => {
+  if (!db) throw new Error('Database not initialized');
+  
+  db.prepare('DELETE FROM articles WHERE feed_id = ?').run(feedId);
+  db.prepare('DELETE FROM feeds WHERE id = ?').run(feedId);
+  return true;
+});
+
+async function doFetchFeed(feedId: number): Promise<{ success: boolean; count: number }> {
+  if (!db) throw new Error('Database not initialized');
+  
+  const feed = db.prepare('SELECT * FROM feeds WHERE id = ?').get(feedId) as { id: number; url: string; name: string } | undefined;
+  if (!feed) {
+    throw new Error('Feed not found');
+  }
+
+  const feedData = await fetchFeed(feed.url);
+  
+  const insertArticle = db.prepare(`
+    INSERT OR IGNORE INTO articles (feed_id, title, content, url, author, published_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertMany = db.transaction((items: typeof feedData.items) => {
+    for (const item of items) {
+      insertArticle.run(
+        feedId,
+        item.title,
+        item.content || item.contentSnippet,
+        item.link,
+        item.creator,
+        item.isoDate || item.pubDate
+      );
+    }
+  });
+
+  insertMany(feedData.items);
+
+  db.prepare('UPDATE feeds SET name = ?, last_fetched = CURRENT_TIMESTAMP WHERE id = ?').run(
+    feedData.title || feed.name,
+    feedId
+  );
+
+  return { success: true, count: feedData.items.length };
+}
+
+ipcMain.handle('feeds:fetch', async (_event, feedId: number) => {
+  try {
+    return await doFetchFeed(feedId);
+  } catch (error) {
+    throw new Error(`Failed to fetch feed: ${(error as Error).message}`);
+  }
+});
+
+ipcMain.handle('feeds:fetchAll', async () => {
+  if (!db) throw new Error('Database not initialized');
+  
+  const feedsList = db.prepare('SELECT id FROM feeds WHERE type = ?').all('rss') as { id: number }[];
+  const results = [];
+
+  for (const feed of feedsList) {
+    try {
+      const result = await doFetchFeed(feed.id);
+      results.push({ feedId: feed.id, ...result });
+    } catch (error) {
+      results.push({ feedId: feed.id, success: false, error: (error as Error).message });
+    }
+  }
+
+  return results;
+});
+
+ipcMain.handle('articles:list', (_event, options: { feedId?: number; unreadOnly?: boolean; limit?: number; offset?: number } = {}) => {
+  if (!db) throw new Error('Database not initialized');
+  
+  const { feedId, unreadOnly, limit = 50, offset = 0 } = options;
+  
+  let sql = `
+    SELECT a.*, f.name as feed_name, f.type as feed_type
+    FROM articles a
+    JOIN feeds f ON a.feed_id = f.id
+    WHERE 1=1
+  `;
+  const params: (string | number)[] = [];
+
+  if (feedId) {
+    sql += ' AND a.feed_id = ?';
+    params.push(feedId);
+  }
+
+  if (unreadOnly) {
+    sql += ' AND a.is_read = 0';
+  }
+
+  sql += ' ORDER BY a.published_at DESC, a.created_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  return db.prepare(sql).all(...params);
+});
+
+ipcMain.handle('articles:get', (_event, articleId: number) => {
+  if (!db) throw new Error('Database not initialized');
+  
+  return db.prepare(`
+    SELECT a.*, f.name as feed_name
+    FROM articles a
+    JOIN feeds f ON a.feed_id = f.id
+    WHERE a.id = ?
+  `).get(articleId);
+});
+
+ipcMain.handle('articles:markRead', (_event, articleId: number) => {
+  if (!db) throw new Error('Database not initialized');
+  
+  db.prepare('UPDATE articles SET is_read = 1 WHERE id = ?').run(articleId);
+  return true;
+});
+
+ipcMain.handle('articles:markAllRead', (_event, feedId?: number) => {
+  if (!db) throw new Error('Database not initialized');
+  
+  if (feedId) {
+    db.prepare('UPDATE articles SET is_read = 1 WHERE feed_id = ?').run(feedId);
+  } else {
+    db.prepare('UPDATE articles SET is_read = 1').run();
+  }
+  return true;
+});
+
+ipcMain.handle('articles:unreadCount', (_event, feedId?: number) => {
+  if (!db) throw new Error('Database not initialized');
+  
+  if (feedId) {
+    const row = db.prepare('SELECT COUNT(*) as count FROM articles WHERE feed_id = ? AND is_read = 0').get(feedId) as { count: number };
+    return row.count;
+  }
+  
+  const row = db.prepare('SELECT COUNT(*) as count FROM articles WHERE is_read = 0').get() as { count: number };
+  return row.count;
 });

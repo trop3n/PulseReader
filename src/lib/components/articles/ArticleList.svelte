@@ -1,52 +1,98 @@
 <script lang="ts">
-  const articles = [
-    { id: '1', title: 'Understanding React Server Components', feed: 'Tech Blogs', time: '2h ago', unread: true },
-    { id: '2', title: 'The Future of TypeScript 5.5', feed: 'Tech Blogs', time: '4h ago', unread: true },
-    { id: '3', title: 'Building Modern CLI Tools', feed: 'Newsletter', time: '1d ago', unread: false },
-    { id: '4', title: 'CSS Container Queries Are Here', feed: 'Tech Blogs', time: '2d ago', unread: false },
-    { id: '5', title: 'Introduction to WebGPU', feed: 'Papers', time: '3d ago', unread: false },
-    { id: '6', title: 'System Design Interview Tips', feed: 'Newsletter', time: '4d ago', unread: false },
-  ];
+  import { articles } from '$lib/stores/articles';
+  import type { Article } from '$lib/types';
+  import { onMount } from 'svelte';
 
   interface Props {
-    onSelect?: (id: string) => void;
+    onSelect?: (article: Article) => void;
   }
 
   let { onSelect }: Props = $props();
 
-  let selectedId = $state<string | null>(null);
+  let selectedId = $state<number | null>(null);
+  
+  let items = $derived($articles.items);
+  let loading = $derived($articles.loading);
+  let error = $derived($articles.error);
 
-  function handleSelect(id: string) {
-    selectedId = id;
-    onSelect?.(id);
+  onMount(() => {
+    articles.load({});
+  });
+
+  function handleSelect(article: Article) {
+    selectedId = article.id;
+    onSelect?.(article);
+    
+    if (!article.is_read) {
+      articles.markRead(article.id);
+    }
+  }
+
+  function formatTime(dateStr: string | null): string {
+    if (!dateStr) return '';
+    
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 </script>
 
 <div class="article-list">
-  {#each articles as article}
-    <button
-      class="article-item"
-      class:selected={selectedId === article.id}
-      class:unread={article.unread}
-      onclick={() => handleSelect(article.id)}
-    >
-      {#if article.unread}
-        <span class="unread-dot"></span>
-      {/if}
-      <div class="article-content">
-        <span class="article-title">{article.title}</span>
-        <div class="article-meta">
-          <span class="article-feed">{article.feed}</span>
-          <span class="separator">·</span>
-          <span class="article-time">{article.time}</span>
-        </div>
-      </div>
-    </button>
-  {:else}
-    <div class="empty-state">
-      <p>No articles yet</p>
+  {#if loading && items.length === 0}
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading articles...</p>
     </div>
-  {/each}
+  {:else if error}
+    <div class="error-state">
+      <p>{error}</p>
+      <button onclick={() => articles.load({})}>Retry</button>
+    </div>
+  {:else if items.length === 0}
+    <div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+      </svg>
+      <p>No articles yet</p>
+      <span>Add some feeds to get started</span>
+    </div>
+  {:else}
+    {#each items as article (article.id)}
+      <button
+        class="article-item"
+        class:selected={selectedId === article.id}
+        class:unread={!article.is_read}
+        onclick={() => handleSelect(article)}
+      >
+        {#if !article.is_read}
+          <span class="unread-dot"></span>
+        {/if}
+        <div class="article-content">
+          <span class="article-title">{article.title}</span>
+          <div class="article-meta">
+            <span class="article-feed">{article.feed_name}</span>
+            <span class="separator">·</span>
+            <span class="article-time">{formatTime(article.published_at)}</span>
+          </div>
+        </div>
+      </button>
+    {/each}
+
+    {#if loading}
+      <div class="loading-more">
+        <div class="spinner small"></div>
+      </div>
+    {/if}
+  {/if}
 </div>
 
 <style>
@@ -116,12 +162,67 @@
     margin: 0 4px;
   }
 
+  .loading-state,
+  .error-state,
   .empty-state {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 200px;
-    color: var(--text-muted);
+    padding: 24px;
+    text-align: center;
+  }
+
+  .loading-state p,
+  .error-state p,
+  .empty-state p {
+    margin-top: 12px;
+    color: var(--text-secondary);
     font-size: 14px;
+  }
+
+  .empty-state span {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .error-state button {
+    margin-top: 12px;
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .error-state button:hover {
+    background: var(--bg-hover);
+  }
+
+  .spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .spinner.small {
+    width: 16px;
+    height: 16px;
+    border-width: 2px;
+  }
+
+  .loading-more {
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 </style>
