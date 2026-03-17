@@ -135,6 +135,9 @@ func (s LibraryScreen) Update(msg tea.Msg) (LibraryScreen, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("a", "o"))):
 			return s, func() tea.Msg { return OpenFilePickerMsg{} }
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("b"))):
+			return s, func() tea.Msg { return OpenFolderBrowserMsg{} }
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			if item, ok := s.list.SelectedItem().(libraryItem); ok {
 				return s, func() tea.Msg { return OpenDocumentMsg{Path: item.doc.Path} }
@@ -156,6 +159,7 @@ func (s LibraryScreen) View() string {
 	help := components.HelpBar([]components.HelpBinding{
 		{Key: "enter", Desc: "open"},
 		{Key: "a/o", Desc: "add file"},
+		{Key: "b", Desc: "browse folder"},
 		{Key: "d", Desc: "remove"},
 		{Key: "/", Desc: "filter"},
 		{Key: "q", Desc: "quit"},
