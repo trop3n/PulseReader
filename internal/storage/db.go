@@ -74,6 +74,37 @@ func (db *DB) migrate() error {
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL
 	);
+
+	CREATE TABLE IF NOT EXISTS feeds (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		title        TEXT NOT NULL,
+		url          TEXT NOT NULL UNIQUE,
+		site_url     TEXT DEFAULT '',
+		description  TEXT DEFAULT '',
+		image_url    TEXT DEFAULT '',
+		last_fetched DATETIME,
+		added_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS articles (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		feed_id      INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+		guid         TEXT NOT NULL,
+		title        TEXT NOT NULL,
+		url          TEXT DEFAULT '',
+		author       TEXT DEFAULT '',
+		content      TEXT DEFAULT '',
+		summary      TEXT DEFAULT '',
+		published_at DATETIME,
+		fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+		read         INTEGER DEFAULT 0,
+		read_at      DATETIME,
+		UNIQUE(feed_id, guid)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_articles_feed_id ON articles(feed_id);
+	CREATE INDEX IF NOT EXISTS idx_articles_read ON articles(read);
+	CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
 	`
 	_, err := db.conn.Exec(schema)
 	return err

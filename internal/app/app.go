@@ -16,6 +16,9 @@ const (
 	readerScreen
 	filePickerScreen
 	folderBrowserScreen
+	feedsScreen
+	articleListScreen
+	articleReaderScreen
 )
 
 // Model is the top-level application model.
@@ -26,10 +29,15 @@ type Model struct {
 	reader        screens.ReaderScreen
 	filePicker    screens.FilePickerScreen
 	folderBrowser screens.FolderBrowserScreen
+	feeds         screens.FeedsScreen
+	articleList   screens.ArticleListScreen
+	articleReader screens.ArticleReaderScreen
 	width         int
 	height        int
 	openDoc       document.Document
 	lastBrowseDir string
+	// Track where to return from article reader
+	returnToFeeds bool
 }
 
 // New creates the application model.
@@ -38,6 +46,7 @@ func New(db *storage.DB) Model {
 		db:      db,
 		active:  libraryScreen,
 		library: screens.NewLibraryScreen(db),
+		feeds:   screens.NewFeedsScreen(db),
 	}
 }
 
@@ -52,15 +61,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
-		// Global quit from library
-		if m.active == libraryScreen && msg.String() == "ctrl+c" {
+		// Global quit
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if m.active == libraryScreen && msg.String() == "q" {
-			// Only quit if not filtering
-			// The library list handles 'q' during filtering
+		// Quit from library or feeds with 'q' (only when not filtering)
+		if msg.String() == "q" && (m.active == libraryScreen || m.active == feedsScreen) {
+			// Let the screen handle it first (it may be filtering)
 		}
 
+	// === Tab switching between Library and Feeds ===
+	case screens.SwitchToFeedsMsg:
+		m.active = feedsScreen
+		return m, m.feeds.LoadFeeds()
+
+	case screens.SwitchToLibraryMsg:
+		m.active = libraryScreen
+		return m, m.library.LoadDocuments()
+
+	// === File picker / folder browser ===
 	case screens.OpenFilePickerMsg:
 		homeDir, _ := os.UserHomeDir()
 		m.filePicker = screens.NewFilePickerScreen(homeDir)
@@ -89,7 +108,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case screens.FileSelectedMsg:
-		// Remember the directory we were browsing
 		if m.active == folderBrowserScreen {
 			m.lastBrowseDir = m.folderBrowser.Dir()
 			_ = m.db.SetSetting("last_browse_dir", m.lastBrowseDir)
@@ -101,6 +119,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.active = libraryScreen
 		return m, nil
 
+	// === Document reader ===
 	case screens.OpenDocumentMsg:
 		return m, m.openDocument(msg.Path)
 
@@ -108,7 +127,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openDoc = msg.doc
 		m.reader = screens.NewReaderScreen(msg.doc, msg.dbDoc, m.db, m.width, m.height)
 		m.active = readerScreen
-		// Update document metadata in DB
 		meta := msg.doc.Metadata()
 		if msg.dbDoc != nil && msg.dbDoc.TotalPages != meta.TotalPages {
 			msg.dbDoc.TotalPages = meta.TotalPages
@@ -118,7 +136,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case documentOpenErrorMsg:
-		// Stay on library, error will be shown
 		return m, nil
 
 	case screens.RemoveDocumentMsg:
@@ -132,6 +149,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.active = libraryScreen
 		return m, m.library.LoadDocuments()
+
+	// === Feed management ===
+	case screens.OpenFeedMsg:
+		feed, err := m.db.GetFeed(msg.FeedID)
+		if err != nil {
+			return m, nil
+		}
+		m.articleList = screens.NewArticleListScreen(m.db, feed.ID, feed.Title)
+		m.active = articleListScreen
+		return m, m.articleList.LoadArticles()
+
+	case screens.OpenAllArticlesMsg:
+		m.articleList = screens.NewArticleListScreen(m.db, 0, "All Articles")
+		m.active = articleListScreen
+		return m, m.articleList.LoadArticles()
+
+	case screens.RemoveFeedMsg:
+		_ = m.db.RemoveFeed(msg.ID)
+		return m, m.feeds.LoadFeeds()
+
+	case screens.CloseArticleListMsg:
+		m.active = feedsScreen
+		return m, m.feeds.LoadFeeds()
+
+	// === Article reader ===
+	case screens.OpenArticleMsg:
+		article, err := m.db.GetArticle(msg.ArticleID)
+		if err != nil {
+			return m, nil
+		}
+		m.articleReader = screens.NewArticleReaderScreen(article, m.db, m.width, m.height)
+		m.active = articleReaderScreen
+		return m, nil
+
+	case screens.CloseArticleReaderMsg:
+		m.active = articleListScreen
+		return m, m.articleList.LoadArticles()
 	}
 
 	// Route to active screen
@@ -145,6 +199,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.filePicker, cmd = m.filePicker.Update(msg)
 	case folderBrowserScreen:
 		m.folderBrowser, cmd = m.folderBrowser.Update(msg)
+	case feedsScreen:
+		m.feeds, cmd = m.feeds.Update(msg)
+	case articleListScreen:
+		m.articleList, cmd = m.articleList.Update(msg)
+	case articleReaderScreen:
+		m.articleReader, cmd = m.articleReader.Update(msg)
 	}
 
 	return m, cmd
@@ -158,6 +218,12 @@ func (m Model) View() string {
 		return m.filePicker.View()
 	case folderBrowserScreen:
 		return m.folderBrowser.View()
+	case feedsScreen:
+		return m.feeds.View()
+	case articleListScreen:
+		return m.articleList.View()
+	case articleReaderScreen:
+		return m.articleReader.View()
 	default:
 		return m.library.View()
 	}
@@ -178,7 +244,6 @@ func (m *Model) openDocument(path string) tea.Cmd {
 
 		dbDoc, _ := m.db.GetDocumentByPath(path)
 		if dbDoc == nil {
-			// Shouldn't happen if document was added, but handle gracefully
 			meta := doc.Metadata()
 			dbDoc = &storage.Document{
 				Title:      meta.Title,

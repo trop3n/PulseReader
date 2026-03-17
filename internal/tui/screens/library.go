@@ -19,6 +19,7 @@ type (
 	OpenFilePickerMsg struct{}
 	OpenDocumentMsg   struct{ Path string }
 	RemoveDocumentMsg struct{ ID int64 }
+	SwitchToFeedsMsg  struct{}
 )
 
 // libraryItem implements list.Item for the document list.
@@ -132,6 +133,9 @@ func (s LibraryScreen) Update(msg tea.Msg) (LibraryScreen, tea.Cmd) {
 		}
 
 		switch {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
+			return s, func() tea.Msg { return SwitchToFeedsMsg{} }
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("a", "o"))):
 			return s, func() tea.Msg { return OpenFilePickerMsg{} }
 
@@ -162,6 +166,7 @@ func (s LibraryScreen) View() string {
 		{Key: "b", Desc: "browse folder"},
 		{Key: "d", Desc: "remove"},
 		{Key: "/", Desc: "filter"},
+		{Key: "tab", Desc: "feeds"},
 		{Key: "q", Desc: "quit"},
 	})
 
