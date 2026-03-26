@@ -87,6 +87,13 @@ func NewFolderBrowserScreen(dir string) FolderBrowserScreen {
 	return s
 }
 
+// SetSize sets the screen dimensions.
+func (s *FolderBrowserScreen) SetSize(width, height int) {
+	s.width = width
+	s.height = height
+	s.list.SetSize(width, height-2)
+}
+
 func (s *FolderBrowserScreen) LoadDir() tea.Cmd {
 	dir := s.dir
 	return func() tea.Msg {

@@ -36,6 +36,13 @@ func NewFilePickerScreen(startDir string) FilePickerScreen {
 	}
 }
 
+// SetSize sets the screen dimensions.
+func (s *FilePickerScreen) SetSize(width, height int) {
+	s.width = width
+	s.height = height
+	s.picker.Height = height - 4
+}
+
 func (s FilePickerScreen) Init() tea.Cmd {
 	return s.picker.Init()
 }

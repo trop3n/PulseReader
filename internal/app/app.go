@@ -83,6 +83,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.OpenFilePickerMsg:
 		homeDir, _ := os.UserHomeDir()
 		m.filePicker = screens.NewFilePickerScreen(homeDir)
+		m.filePicker.SetSize(m.width, m.height)
 		m.active = filePickerScreen
 		return m, m.filePicker.Init()
 
@@ -98,6 +99,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			startDir, _ = os.UserHomeDir()
 		}
 		m.folderBrowser = screens.NewFolderBrowserScreen(startDir)
+		m.folderBrowser.SetSize(m.width, m.height)
 		m.active = folderBrowserScreen
 		return m, m.folderBrowser.LoadDir()
 
